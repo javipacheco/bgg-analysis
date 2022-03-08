@@ -1,13 +1,21 @@
-import cats.effect.Sync
-import fs2.data.csv._
-import fs2.io.file._
+package bgganalysis.interpreters
+
 import fs2._
-import cats.implicits._
+import bgganalysis.domain.BGGData
+import bgganalysis.algebras.CVSParser
+import fs2.data.csv.{lowlevel, Row}
+import fs2.io.file.{Files, Path}
+
 import scala.util.Try
 
-class BGGService[F[_]: Files: Sync] {
+class BGGDataParserInterpreter[F[_]: Files: RaiseThrowable] extends CVSParser[F, BGGData] {
 
-  private val path = Path("data/bgg_dataset.csv")
+  override def readCSV(path: Path): Stream[F, BGGData] =
+    Files[F]
+      .readAll(path)
+      .through(csvParser)
+      .map(row => parseBGGData(row.values.take(11)))
+      .collect { case Some(data) => data }
 
   private def csvParser: Pipe[F, Byte, Row] =
     _.through(text.utf8.decode)
@@ -31,30 +39,6 @@ class BGGService[F[_]: Files: Sync] {
         )
       ).toOption
     case _ => None
-  }
-
-  private def readCSV(): Stream[F, BGGData] = {
-    Files[F]
-      .readAll(path)
-      .through(csvParser)
-      .map(row => parseBGGData(row.values.take(11)))
-      .collect { case Some(data) => data }
-  }
-
-  def showAnalysis(): Stream[F, Unit] = {
-    readCSV()
-      .fold(BGGAnalysis.empty) { (acc, item) =>
-        acc.accumulate(item)
-      }
-      .evalMap(a => println(a.show).pure[F])
-  }
-
-  def geekRatingByMinPlayers(): Stream[F, Unit] = {
-    readCSV()
-      .fold(GeekRatingByPlayers.empty) { (acc, item) =>
-        acc.accumulate(item)
-      }
-      .evalMap(a => println(a.show).pure[F])
   }
 
 }
